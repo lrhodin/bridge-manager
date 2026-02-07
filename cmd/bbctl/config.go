@@ -125,17 +125,27 @@ var askParams = map[string]func(string, map[string]string) (bool, error){
 		bbPassword := extraParams["bluebubbles_password"]
 		var didAddParams bool
 		if runtime.GOOS != "darwin" && platform == "" {
-			// Linux can't run the other connectors
-			platform = "bluebubbles"
+			// Linux can't run the other connectors (except rustpush)
+			if strings.Contains(bridgeName, "imessage-v2") {
+				platform = "rustpush"
+			} else {
+				platform = "bluebubbles"
+			}
+		}
+		if platform == "" {
+			if strings.Contains(bridgeName, "imessage-v2") {
+				platform = "rustpush"
+			}
 		}
 		if platform == "" {
 			err := survey.AskOne(&survey.Select{
 				Message: "Select iMessage connector:",
-				Options: []string{"mac", "mac-nosip", "bluebubbles"},
+				Options: []string{"mac", "mac-nosip", "bluebubbles", "rustpush"},
 				Description: simpleDescriptions(map[string]string{
 					"mac":         "Use AppleScript to send messages and read chat.db for incoming data - only requires Full Disk Access (from system settings)",
 					"mac-nosip":   "Use Barcelona to interact with private APIs - requires disabling SIP and AMFI",
 					"bluebubbles": "Connect to a BlueBubbles instance",
+					"rustpush":    "Use rustpush for iMessage registration and messaging",
 				}),
 				Default: "mac",
 			}, &platform)
@@ -273,6 +283,12 @@ func doGenerateBridgeConfig(ctx *cli.Context, bridge string) (*generatedBridgeCo
 		return nil, err
 	}
 
+	// After registering as "imessage" so the server recognizes it, switch to
+	// "imessage-v2" for config generation (bridgev2 framework template).
+	if bridgeType == "imessage" && extraParams["imessage_platform"] == "rustpush" {
+		bridgeType = "imessage-v2"
+	}
+
 	dbPrefix := GetEnvConfig(ctx).DatabaseDir
 	if dbPrefix != "" {
 		dbPrefix = filepath.Join(dbPrefix, bridge+"-")
@@ -354,6 +370,11 @@ func generateBridgeConfig(ctx *cli.Context) error {
 		installInstructions = fmt.Sprintf("https://docs.mau.fi/bridges/go/setup.html?bridge=%s#installation", cfg.BridgeType)
 	case "imessagego":
 		startupCommand = "beeper-imessage"
+		if outputPath != "config.yaml" && outputPath != "<config file>" {
+			startupCommand += " -c " + outputPath
+		}
+	case "imessage-v2":
+		startupCommand = "mautrix-imessage-v2"
 		if outputPath != "config.yaml" && outputPath != "<config file>" {
 			startupCommand += " -c " + outputPath
 		}
